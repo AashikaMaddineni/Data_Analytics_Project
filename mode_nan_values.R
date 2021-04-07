@@ -1,0 +1,239 @@
+library(randomForest)
+library(caret)
+library(ggplot2)
+library(kernlab)
+library(tm)
+library(dplyr)
+require(caTools) 
+library(tidyr)
+library(CatEncoders)
+library(corrplot)
+suppressMessages(library(caret))
+#loading the train and test data
+data=read.csv(file="fake_job_postings.csv")
+#viewing the dataset
+#View(data)
+dim(data)
+colnames(data)
+str(data)
+
+
+
+# Handling mising values by Mode
+df_mode<- data
+# replace empty factor levels with NA
+df_mode[df_mode==''] <- NA
+#View(df_mode_mode)
+# keep only relevant factor vars 
+names(df_mode)
+df_mode<- df_mode[,c(10:16,17:18)]
+head(df_mode)
+str(df_mode)
+colnames(df_mode)
+# sum of null values in dataset
+sum(is.na(df_mode))
+#sum of null values columnwise in dataset
+sapply(df_mode, function(x) sum(is.na(x)))
+
+# replace Nan values with mode
+
+Mode <- function (x, na.rm) {
+  xtab <- table(x)
+  xmode <- names(which(xtab == max(xtab)))
+  if (length(xmode) > 1) xmode <- ">1 mode"
+  return(xmode)
+}
+
+for (var in 1:ncol(df_mode)) {
+  if (class(df_mode[,var])=="numeric") {
+    df_mode[is.na(df_mode[,var]),var] <- mean(df_mode[,var], na.rm = TRUE)
+  } else if (class(df_mode[,var]) %in% c("character", "factor")) {
+    df_mode[is.na(df_mode[,var]),var] <- Mode(df_mode[,var], na.rm = TRUE)
+  }
+}
+#View(df_mode)
+sum(is.na(df_mode))
+View(df_mode)
+
+df_mode$employment_type<- factor(df_mode$employment_type)
+df_mode$required_experience<- factor(df_mode$required_experience)
+df_mode$required_education<- factor(df_mode$required_education)
+df_mode$function.<- factor(df_mode$function.)
+df_mode$industry<- factor(df_mode$industry)
+
+# no of categorical coumns in dataframe
+factors <- names(which(sapply(df_mode, is.factor)))
+factors
+
+# Label Encoder
+for (i in factors){
+  encode <- LabelEncoder.fit(df_mode[, i])
+  df_mode[, i] <- transform(encode, df_mode[, i])
+}
+sum(is.na(df_mode))
+dim(df_mode)
+head(df_mode)
+
+#Correlarion plot
+x=cor(df_mode, use = "complete.obs")
+corrplot(x, method="color")
+findCorrelation(
+       x,
+       cutoff = 0.9,
+       verbose = FALSE,
+       names = TRUE
+   )
+# There is no columns which are highly correlated
+
+# coerce target var to factor
+df_mode$fraudulent<- factor(df_mode$fraudulent)
+str(df_mode)
+
+
+ # dividing the data into training data and testing data
+require(caTools)  
+set.seed(123)
+sample_mode = sample.split(df_mode,SplitRatio = 0.7)
+train_data_mode =subset(df_mode,sample_mode ==TRUE)
+test_data_mode=subset(df_mode, sample_mode==FALSE)
+
+#get details
+str(train_data_mode)
+str(test_data_mode)
+
+#dimention
+dim(train_data_mode)
+dim(test_data_mode)
+
+validation_mode=test_data_mode$fraudulent
+test_data_mode=test_data_mode[,c(1:8)]
+
+
+
+# as the label class "fraudulent" is categorical we check equal distribution
+sum(train_data_mode$fraudulent=="not_fake")
+sum(train_data_mode$fraudulent=="fake")
+percentage <- prop.table(table(train_data_mode$fraudulent) * 100)
+cbind(freq=table(train_data_mode$fraudulent), percentage=percentage)
+p<-ggplot(train_data_mode,aes(fraudulent)) 
+p + geom_bar(fill="red")+ geom_text(stat='count',aes(label=..count..),vjust=-1)
+
+#list the levels for the class label
+levels(train_data_mode$fraudulent)
+#we can see there are two levels, making it a binary classification problem
+
+#statistical summary
+summary(train_data_mode)
+str(train_data_mode)
+str(test_data_mode)
+
+#Prediction algorithms before any pre processing
+#1.Set-up the test harness to use 10-fold  cross validation_mode.
+#2.Build 5 different models to predict.
+#3.Select the best model.
+#We will use 10-fold cross validation_mode to estimate accuracy.
+#This will split our dataset into 10 parts, train in 9 and test on 1 and release for all combinations of train-test splits. We will also repeat the process 3 times for each algorithm with different splits of the data into 10 groups, in an effort to get a more accurate estimate.
+
+#Run algorithms using 10-fold cross validation_mode
+control<-trainControl(method="cv",number=10)
+#We are using the metric of “Accuracy” to evaluate models. This is a ratio of the number of correctly predicted instances in divided by the total number of instances in the dataset multiplied by 100 to give a percentage (e.g. 95% accurate). We will be using the metric variable when we run build and evaluate each model next.
+metric<-"Accuracy"
+
+#Build models
+#We reset the random number seed before reach run to ensure that the evaluation of each algorithm is performed using exactly the same data splits. It ensures the results are directly comparable.
+#5 different algorithms
+
+
+# a)Linear Algorithms
+#1.Linear Discrimant Analysis(LDA)
+set.seed(200)
+fit.lda_mode<-train(fraudulent~.,data=train_data_mode,method="lda",metric=metric, trControl=control)
+## Predicting fraud job postings
+LDAPredict_mode <- predict(fit.lda_mode, newdata = test_data_mode)
+## Confusion matrix
+CM_LDA_mode <- confusionMatrix(LDAPredict_mode, validation_mode)
+CM_LDA_mode
+
+#b)Nonlinear Algorithms
+#1.Classification and Regression Trees(Cart)
+set.seed(200)
+fit.cart_mode<-train(fraudulent~.,data=train_data_mode,method="rpart",metric=metric, trControl=control)
+## Predicting fraud job postings
+cartPredict_mode <- predict(fit.cart_mode, newdata = test_data_mode )
+## Confusion matrix
+CM_cart_mode <- confusionMatrix(cartPredict_mode, validation_mode)
+CM_cart_mode
+
+#2. k-Nearest Neighbors(KNN)
+set.seed(200)
+fit.knn_mode<-train(fraudulent~.,data=train_data_mode,method="knn",metric=metric, trControl=control)
+## Predicting fraud job postings
+KNNPredict_mode <- predict(fit.knn_mode, newdata = test_data_mode )
+## Confusion matrix
+CM_KNN_mode <- confusionMatrix(KNNPredict_mode, validation_mode)
+CM_KNN_mode
+
+#c) Advanced algorithms
+
+#1. Random Forests
+set.seed(200)
+control<-trainControl(method="cv",number=10)
+fit.rf_mode<-train(fraudulent~.,data=train_data_mode, method="rf",metric=metric, trControl=control)
+## Predicting fraud job postings
+Predict_rf_mode <- predict(fit.rf_mode, newdata = test_data_mode)
+## Confusion matrix
+CM_RF_mode <- confusionMatrix(Predict_rf_mode, validation_mode)
+CM_RF_mode
+
+
+#2.Gradient Boosting method
+
+set.seed(200)
+fit.gbm_mode<-train(fraudulent~.,data=train_data_mode,method="gbm",metric=metric, trControl=control)
+## Predicting fraud job postings
+Predict_gbm_mode <- predict(fit.gbm_mode, newdata = test_data_mode )
+## Confusion matrix
+CM_GBM_mode <- confusionMatrix(Predict_gbm_mode, validation_mode)
+CM_GBM_mode
+
+#3. SVM Support Vector Machines(SVM)
+
+#linear kernel
+
+set.seed(200)
+fit.svmL_mode<-train(fraudulent~.,data=train_data_mode,method="svmLinear",metric=metric, trControl=control)
+## Predicting fraud job postings
+Predict_svmL_mode <- predict(fit.svmL_mode, newdata = test_data_mode )
+## Confusion matrix
+CM_SVML_mode <- confusionMatrix(Predict_svmL_mode, validation_mode )
+CM_SVML_mode
+
+#Non-Linear Kernel
+set.seed(200)
+fit.svmR_mode<-train(fraudulent~.,data=train_data_mode,method="svmRadial",metric=metric, trControl=control)
+## Predicting fraud job postings
+Predict_svmR_mode <- predict(fit.svmR_mode, newdata = test_data_mode )
+## Confusion matrix
+CM_SVMR_mode <- confusionMatrix(Predict_svmR_mode, validation_mode)
+CM_SVMR_mode
+
+set.seed(200)
+fit.svmP_mode<-train(fraudulent~.,data=train_data_mode,method="svmPoly",metric=metric, trControl=control)
+## Predicting fraud job postings
+Predict_svmP_mode <- predict(fit.svmP_mode, newdata = test_data_mode)
+## Confusion matrix
+CM_SVMP_mode <- confusionMatrix(Predict_svmP_mode, validation_mode )
+CM_SVMP_mode
+
+#summarize accuracy of models
+
+results_mode<-resamples(list(lda=fit.lda_mode, cart=fit.cart_mode, knn=fit.knn_mode, rf=fit.rf_mode, gbm=fit.gbm_mode, svmL=fit.svmL_mode, svmR=fit.svmR_mode, svmP=fit.svmP_mode))
+summary(results_mode)
+
+#We can also create a plot of the model evaluation results and compare the spread and the mean accuracy of each model. There is a population of accuracy measures for each algorithm because each algorithm was evaluated 10 times (10 fold cross validation_mode).
+dotplot(results_mode)
+
+
+
+
+
